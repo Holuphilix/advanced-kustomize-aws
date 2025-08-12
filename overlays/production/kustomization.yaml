@@ -1,0 +1,12 @@
+resources:
+  - ../../base
+
+patches:
+  - path: replica-patch.yaml
+    target:
+      kind: Deployment
+      name: myapp-deployment
+  - path: image-patch.yaml
+    target:
+      kind: Deployment
+      name: myapp-deployment
