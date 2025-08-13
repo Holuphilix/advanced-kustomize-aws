@@ -543,17 +543,68 @@ spec:
         - containerPort: 80
 ```
 
-## **Task 4: Set Up GitHub Repository and Create CI/CD Workflow**
+## **Task 4: Create EKS Cluster, Set Up GitHub Repository, and Deploy with GitHub Actions**
 
-### **Step 1: Set Up Your GitHub Repository**
+### **Step 1: Create an EKS Cluster**
 
-1. **Create a new GitHub repository** (if you haven’t already):
+Use `eksctl` to spin up a new Amazon EKS cluster:
+
+```bash
+eksctl create cluster \
+  --name my-kustomize-cluster \
+  --region us-east-1 \
+  --nodegroup-name standard-workers \
+  --node-type t3.medium \
+  --nodes 2
+```
+
+**Explanation**
+
+* `--name`: Cluster name
+* `--region`: AWS region
+* `--nodegroup-name`: Worker node group name
+* `--node-type`: Instance type for workers
+* `--nodes`: Number of worker nodes
+
+### **Step 2: Connect kubectl to the Cluster**
+
+After the cluster is created, configure `kubectl`:
+
+```bash
+aws eks update-kubeconfig \
+  --name my-kustomize-cluster \
+  --region us-east-1
+```
+
+Verify connection:
+
+```bash
+kubectl get nodes
+```
+
+**Screenshot:** kubectl get nodes
+[kubectl get nodes](./images/1.kubectl_get_all.png)
+
+### **Step 3: Prepare kubeconfig for GitHub Actions**
+
+GitHub Actions will need your kubeconfig in base64 format.
+
+```bash
+cat ~/.kube/config | base64 -w 0
+```
+
+Copy the output.
+
+### **Step 4: Set Up Your GitHub Repository**
+
+1. **Create a GitHub Repository**
 
    * Go to [github.com/new](https://github.com/new)
-   * Name your repo `advanced-kustomize-aws`
-   * Set it as Public or Private as you prefer
-   * Initialize with a README (optional, since you already have one locally)
-2. **Push your local project to GitHub**
+   * Name it `advanced-kustomize-aws`
+   * Public or Private is fine
+   * Skip initialization if you already have a local project
+
+2. **Push Your Project to GitHub**
 
 ```bash
 git init
@@ -564,22 +615,16 @@ git branch -M main
 git push -u origin main
 ```
 
-3. **Add your Kubernetes kubeconfig as a GitHub Secret**
+3. **Add kubeconfig as a Secret in GitHub**
 
-   * Encode your kubeconfig:
-
-   ```bash
-   cat ~/.kube/config | base64 -w 0
-   ```
-
-   * Go to your repository on GitHub → **Settings > Secrets and variables > Actions**
+   * Go to **Settings → Secrets and variables → Actions**
    * Click **New repository secret**
-   * Name it `KUBECONFIG_DATA`
-   * Paste the base64 string from above and save
+   * Name it: `KUBECONFIG_DATA`
+   * Paste the **base64 output** from earlier and save
 
-### **Step 2: Create GitHub Actions Workflow**
+### **Step 5: Create GitHub Actions Workflow**
 
-Create `.github/workflows/main.yml` file with the following content:
+Create `.github/workflows/main.yml`:
 
 ```yaml
 name: Deploy with Kustomize
@@ -595,10 +640,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Set up kubectl
-        uses: azure/setup-kubectl@v1
+        uses: azure/setup-kubectl@v3
         with:
           version: 'latest'
 
@@ -612,28 +657,29 @@ jobs:
           KUBECONFIG_DATA: ${{ secrets.KUBECONFIG_DATA }}
         run: |
           mkdir -p $HOME/.kube
-          echo "${KUBECONFIG_DATA}" | base64 --decode > $HOME/.kube/config
+          echo "$KUBECONFIG_DATA" | base64 --decode > $HOME/.kube/config
 
       - name: Deploy to Kubernetes (Production overlay)
-        run: |
-          kubectl apply -k overlays/production
+        run: kubectl apply -k overlays/production
 ```
 
-### **Step 3: Commit and Push Workflow**
+### **Step 6: Commit and Push the Workflow**
 
 ```bash
 git add .github/workflows/main.yml
-git commit -m "Add GitHub Actions workflow for Kustomize deployment"
+git commit -m "Add CI/CD pipeline for Kustomize deployment to EKS"
 git push origin main
 ```
 
-### **Step 4: Monitor Your Workflow**
+### **Step 7: Monitor Deployment**
 
-* Go to your GitHub repository → **Actions** tab
-* Find the latest workflow run triggered by your push
-* Check logs for successful deployment messages or errors
+* Go to the **Actions** tab in GitHub
+* Watch the workflow logs
+* Verify on EKS:
 
-### **Optional: Customize for Other Environments**
+```bash
+kubectl get all -n myapp-namespace
+```
 
-* Modify the deploy step to `kubectl apply -k overlays/development` or `staging`
-* Trigger workflows on pull requests or specific branches for dev/staging environments
+This update ensures your workflow won’t fail due to a missing cluster — the **EKS creation** step comes first, then your **pipeline** handles deployments.
+

@@ -11,10 +11,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Set up kubectl
-        uses: azure/setup-kubectl@v1
+        uses: azure/setup-kubectl@v3
         with:
           version: 'latest'
 
@@ -28,8 +28,7 @@ jobs:
           KUBECONFIG_DATA: ${{ secrets.KUBECONFIG_DATA }}
         run: |
           mkdir -p $HOME/.kube
-          echo "${KUBECONFIG_DATA}" | base64 --decode > $HOME/.kube/config
+          echo "$KUBECONFIG_DATA" | base64 --decode > $HOME/.kube/config
 
       - name: Deploy to Kubernetes (Production overlay)
-        run: |
-          kubectl apply -k overlays/production
+        run: kubectl apply -k overlays/production
