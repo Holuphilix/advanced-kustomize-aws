@@ -241,14 +241,14 @@ base/
 
 ### Objective:
 
-Customize the base Kubernetes manifests for each environment by creating overlays that modify settings like replica counts, image tags, or environment variables.
+Organize Kubernetes manifests using Kustomize overlays so that each environment (development, staging, production) can have its own configuration. For example, different replica counts, image versions, or environment variables,  while still reusing a common base.
 
 ### Step 1: Update each overlay’s `kustomization.yaml` to reference base and add patches
 
 We will add example patches to customize:
 
 * Replica count
-* Image tag (for example, different app versions per environment)
+* Container image tag
 
 ### 2️⃣ Create patch files for each environment
 
@@ -595,7 +595,29 @@ cat ~/.kube/config | base64 -w 0
 
 Copy the output.
 
-### **Step 4: Set Up Your GitHub Repository**
+### **Step 4: Prepare AWS Credentials for GitHub Actions**
+
+We’ll use **AWS IAM user credentials** instead of kubeconfig secrets so GitHub Actions can directly authenticate with AWS and retrieve cluster access.
+
+1. **Create an IAM user** in AWS with:
+
+   * **Programmatic access**
+   * Permissions:
+
+     * `AmazonEKSClusterPolicy`
+     * `AmazonEKSWorkerNodePolicy`
+     * `AmazonEC2FullAccess`
+     * `AmazonEKS_CNI_Policy`
+
+2. **Get the Access Key ID** and **Secret Access Key**.
+
+3. **Add them as GitHub secrets**:
+
+   * `AWS_ACCESS_KEY_ID`
+   * `AWS_SECRET_ACCESS_KEY`
+   * `AWS_REGION` → `us-east-1`
+
+### **Step 5: Set Up Your GitHub Repository**
 
 1. **Create a GitHub Repository**
 
@@ -622,7 +644,7 @@ git push -u origin main
    * Name it: `KUBECONFIG_DATA`
    * Paste the **base64 output** from earlier and save
 
-### **Step 5: Create GitHub Actions Workflow**
+### **Step 6: Create GitHub Actions Workflow**
 
 Create `.github/workflows/main.yml`:
 
@@ -663,7 +685,7 @@ jobs:
         run: kubectl apply -k overlays/production
 ```
 
-### **Step 6: Commit and Push the Workflow**
+### **Step 7: Commit and Push the Workflow**
 
 ```bash
 git add .github/workflows/main.yml
@@ -671,15 +693,15 @@ git commit -m "Add CI/CD pipeline for Kustomize deployment to EKS"
 git push origin main
 ```
 
-### **Step 7: Monitor Deployment**
+### **Step 8: Monitor Deployment**
 
 * Go to the **Actions** tab in GitHub
-* Watch the workflow logs
-* Verify on EKS:
+* Watch the workflow logs for:
+
+  * AWS authentication success
+  * Successful `kubectl apply`
+* Verify in EKS:
 
 ```bash
 kubectl get all -n myapp-namespace
 ```
-
-This update ensures your workflow won’t fail due to a missing cluster — the **EKS creation** step comes first, then your **pipeline** handles deployments.
-
