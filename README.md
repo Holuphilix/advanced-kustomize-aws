@@ -664,6 +664,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
       - name: Set up kubectl
         uses: azure/setup-kubectl@v3
         with:
@@ -674,7 +681,7 @@ jobs:
         with:
           version: 'latest'
 
-      - name: Configure kubeconfig
+      - name: Configure kubeconfig from secret
         env:
           KUBECONFIG_DATA: ${{ secrets.KUBECONFIG_DATA }}
         run: |
@@ -705,3 +712,523 @@ git push origin main
 ```bash
 kubectl get all -n myapp-namespace
 ```
+
+## **Task 5: Advanced Configuration Management with Kustomize on EKS**
+
+### **Objective**
+
+Enhance your Kubernetes deployment by using Kustomize to manage **ConfigMaps, Secrets, and environment-specific overrides**. Implement best practices for production-ready deployments and ensure CI/CD workflows integrate these configurations seamlessly.
+
+### **Step 1: Add ConfigMap for Application Settings in Base**
+
+In **`base/kustomization.yaml`**, add a `configMapGenerator`:
+
+```yaml
+configMapGenerator:
+  - name: my-app-config
+    namespace: myapp-namespace
+    literals:
+      - APP_NAME=MyKustomizeApp
+      - LOG_LEVEL=debug
+```
+
+Update **`base/deployment.yaml`** to reference the ConfigMap:
+
+```yaml
+spec:
+  template:
+    spec:
+      containers:
+        - name: myapp-container
+          image: nginx:latest
+          envFrom:
+            - configMapRef:
+                name: my-app-config
+```
+
+> This injects `APP_NAME` and `LOG_LEVEL` into your container as environment variables.
+
+
+### **Step 2: Add Secret for Sensitive Data**
+
+Add a `secretGenerator` in **`base/kustomization.yaml`**:
+
+```yaml
+secretGenerator:
+  - name: my-app-secret
+    literals:
+      - USERNAME=admin
+      - PASSWORD=VGhpc0lzU2VjcmV0IQ==  # base64 encoded value
+```
+
+Reference the secret in the deployment:
+
+```yaml
+envFrom:
+  - secretRef:
+      name: my-app-secret
+```
+
+> ⚠️ Never store real credentials directly in YAML for production. Use GitHub Secrets or AWS KMS.
+
+### **Step 3: Create Environment-Specific Patch for Development**
+
+To fix the previous `CreateContainerConfigError`, create an **environment patch** that injects development-specific variables.
+
+**`overlays/development/env-patch.yaml`**:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp-deployment
+spec:
+  template:
+    spec:
+      containers:
+        - name: myapp-container
+          env:
+            - name: ENV
+              value: "development"
+            - name: DEBUG
+              value: "true"
+```
+
+> This ensures the container receives the correct environment variables directly, avoiding ConfigMap conflicts.
+
+### **Step 4: Update Development Overlay Kustomization**
+
+**`overlays/development/kustomization.yaml`**:
+
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+namespace: myapp-namespace
+
+patches:
+  - path: replica-patch.yaml
+    target:
+      kind: Deployment
+      name: myapp-deployment
+  - path: image-patch.yaml
+    target:
+      kind: Deployment
+      name: myapp-deployment
+  - path: env-patch.yaml
+    target:
+      kind: Deployment
+      name: myapp-deployment
+
+generatorOptions:
+  disableNameSuffixHash: true
+```
+
+> `env-patch.yaml` now explicitly adds environment variables for development without creating duplicate ConfigMaps or secrets.
+
+### **Step 5: Production Overlay Example**
+
+**`overlays/production/kustomization.yaml`**:
+
+```yaml
+resources:
+  - ../../base
+
+patches:
+  - path: replica-patch.yaml
+    target:
+      kind: Deployment
+      name: myapp-deployment
+  - path: image-patch.yaml
+    target:
+      kind: Deployment
+      name: myapp-deployment
+
+configMapGenerator:
+  - name: my-app-config
+    literals:
+      - LOG_LEVEL=info
+
+generatorOptions:
+  disableNameSuffixHash: true
+```
+
+> Production can override only the necessary variables while keeping the base configuration intact.
+
+### **Step 6: Apply and Test Locally**
+
+```bash
+kubectl apply -k overlays/development
+kubectl get configmaps -n myapp-namespace
+kubectl get secrets -n myapp-namespace
+kubectl get all -n myapp-namespace
+```
+
+Verify environment variables in pods:
+
+```bash
+kubectl exec -it <pod-name> -n myapp-namespace -- env | grep APP_NAME
+kubectl exec -it <pod-name> -n myapp-namespace -- env | grep LOG_LEVEL
+kubectl exec -it <pod-name> -n myapp-namespace -- env | grep ENV
+kubectl exec -it <pod-name> -n myapp-namespace -- env | grep DEBUG
+```
+
+> Pods should now correctly display `ENV=development` and `DEBUG=true`.
+
+**Screenshot:** environment variables in pods
+![environment variables in pods](./images/2.exec_log_level.png)
+
+### **Step 7: Integrate with CI/CD Workflow**
+
+Ensure your **GitHub Actions workflow** applies the latest overlays:
+
+```yaml
+- name: Deploy to Kubernetes (Production overlay)
+  run: kubectl apply -k overlays/production
+```
+
+> If AWS credentials and kubeconfig are already configured in the workflow, no extra steps are needed.
+
+### **Step 8: Best Practices**
+
+1. **Avoid Hardcoding Sensitive Data:** Use Kustomize generators, GitHub Secrets, or AWS KMS.
+2. **Environment Isolation:** Keep development, staging, and production overlays separate.
+3. **Test Changes First:** Apply configurations in development/staging before production.
+4. **Version Control:** Track all Kustomize configurations in GitHub.
+5. **Document Everything:** Maintain clear documentation for all ConfigMaps, Secrets, and patches.
+
+### **Step 9: Verify Deployment in EKS**
+
+```bash
+kubectl get all -n myapp-namespace
+kubectl describe deployment myapp-deployment -n myapp-namespace
+kubectl logs myapp-deployment-fc8df8b9f-dlm88 -n myapp-namespace
+```
+
+> Ensure pods are running, environment variables are injected correctly, and the application behaves as expected.
+
+**Screenshot:** Verify Deployment in EKS
+![Verify Deployment in EKS](./images/3.kube_get_all_myapp-namespace.png)
+**Screenshot:** Verify Deployment in EKS
+![Verify Deployment in EKS](./images/4.kube_get_all_myapp-namespace.png)
+
+## **Task 6: Create Environment-Specific Patches for Staging and Production**
+
+**Objective:**
+Manage environment-specific variables, replicas, and image tags for staging and production overlays without modifying the base manifests.
+
+### **Step 1: Create Staging Environment Patch**
+
+**File:** `overlays/staging/env-patch.yaml`
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp-deployment
+spec:
+  template:
+    spec:
+      containers:
+        - name: myapp-container
+          env:
+            - name: ENV
+              value: "staging"
+            - name: DEBUG
+              value: "false"
+```
+
+### **Step 2: Update Staging `kustomization.yaml`**
+
+**File:** `overlays/staging/kustomization.yaml`
+
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+namespace: myapp-namespace
+
+patches:
+  - path: replica-patch.yaml
+    target:
+      kind: Deployment
+      name: myapp-deployment
+  - path: image-patch.yaml
+    target:
+      kind: Deployment
+      name: myapp-deployment
+  - path: env-patch.yaml
+    target:
+      kind: Deployment
+      name: myapp-deployment
+
+generatorOptions:
+  disableNameSuffixHash: true
+```
+
+### **Step 3: Create Production Environment Patch**
+
+**File:** `overlays/production/env-patch.yaml`
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp-deployment
+spec:
+  template:
+    spec:
+      containers:
+        - name: myapp-container
+          env:
+            - name: ENV
+              value: "production"
+            - name: DEBUG
+              value: "false"
+```
+
+### **Step 4: Update Production `kustomization.yaml`**
+
+**File:** `overlays/production/kustomization.yaml`
+
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+namespace: myapp-namespace
+
+patches:
+  - path: replica-patch.yaml
+    target:
+      kind: Deployment
+      name: myapp-deployment
+  - path: image-patch.yaml
+    target:
+      kind: Deployment
+      name: myapp-deployment
+  - path: env-patch.yaml
+    target:
+      kind: Deployment
+      name: myapp-deployment
+
+configMapGenerator:
+  - name: my-app-config
+    literals:
+      - LOG_LEVEL=info
+
+generatorOptions:
+  disableNameSuffixHash: true
+```
+
+### **Step 5: Apply and Test Locally**
+
+```bash
+kubectl apply -k overlays/staging
+kubectl apply -k overlays/production
+kubectl get configmaps -n myapp-namespace
+kubectl get secrets -n myapp-namespace
+kubectl get all -n myapp-namespace
+```
+
+**Screenshot:** Apply and Test Locally
+![Apply and Test Locally](./images/6.kubectl_apply_staging_production.png)
+
+Verify environment variables in pods:
+
+```bash
+kubectl exec -it myapp-deployment-6b4f48dfdd-4xqbc -n myapp-namespace -- env | grep ENV
+kubectl exec -it myapp-deployment-6b4f48dfdd-m5zfs -n myapp-namespace -- env | grep ENV
+kubectl exec -it myapp-deployment-6b4f48dfdd-m5zfs -n myapp-namespace -- env | grep LOG_LEVEL
+```
+
+> Each environment should correctly reflect its `ENV` and `DEBUG` values, ensuring proper environment isolation.
+
+### ✅ **Result**
+
+```
+overlays/
+├── development/
+│   ├── kustomization.yaml
+│   ├── replica-patch.yaml
+│   ├── image-patch.yaml
+│   └── env-patch.yaml
+├── staging/
+│   ├── kustomization.yaml
+│   ├── replica-patch.yaml
+│   ├── image-patch.yaml
+│   └── env-patch.yaml
+└── production/
+    ├── kustomization.yaml
+    ├── replica-patch.yaml
+    ├── image-patch.yaml
+    └── env-patch.yaml
+```
+
+
+## **Task 7: Optimize, Test, and Push CI/CD Pipeline (Production Only)**
+
+**Objective:**
+Enhance your GitHub Actions CI/CD pipeline for Kustomize deployments by adding caching mechanisms, testing faster builds, and verifying **production** deployments.
+
+### **Step 1: Update GitHub Actions Workflow**
+
+**File:** `.github/workflows/main.yml`
+
+Add caching for Docker layers and optimize your deployment steps:
+
+```yaml
+name: Deploy with Kustomize
+
+# Trigger workflow on push to main and pull requests targeting main
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the repository
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # Cache Docker layers for faster builds
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      # Configure AWS credentials
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # Set up kubectl
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      # Set up Kustomize
+      - name: Set up Kustomize
+        uses: imranismail/setup-kustomize@v1
+        with:
+          version: 'latest'
+
+      # Configure kubeconfig from secret
+      - name: Configure kubeconfig
+        env:
+          KUBECONFIG_DATA: ${{ secrets.KUBECONFIG_DATA }}
+        run: |
+          mkdir -p $HOME/.kube
+          echo "$KUBECONFIG_DATA" | base64 --decode > $HOME/.kube/config
+
+      # Deploy to Production overlay (only on push to main)
+      - name: Deploy to Production
+        if: github.event_name == 'push'
+        run: kubectl apply -k overlays/production
+
+      # Verify deployment (optional, runs on push & PR)
+      - name: Verify Production Deployment
+        run: |
+          kubectl get pods -n myapp-namespace
+          kubectl exec -it $(kubectl get pods -n myapp-namespace -l app=myapp -o jsonpath='{.items[0].metadata.name}') -n myapp-namespace -- env | grep ENV
+          kubectl exec -it $(kubectl get pods -n myapp-namespace -l app=myapp -o jsonpath='{.items[0].metadata.name}') -n myapp-namespace -- env | grep LOG_LEVEL
+```
+
+**Notes:**
+
+* `actions/cache` speeds up builds by reusing Docker layers.
+* Deployment is now **production-only**.
+* Ensure secrets (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `KUBECONFIG_DATA`) are configured in GitHub.
+
+### **Step 2: Verify Production Deployment**
+
+After the workflow runs, confirm that **production pods** have the correct environment variables:
+
+```bash
+# List all pods in the production namespace
+kubectl get pods -n myapp-namespace
+
+# Verify ENV variable in a production pod
+kubectl exec -it myapp-deployment-6b4f48dfdd-6wl6k -n myapp-namespace -- env | grep ENV
+
+# Verify LOG_LEVEL variable in a production pod
+kubectl exec -it myapp-deployment-6b4f48dfdd-zjprl -n myapp-namespace -- env | grep LOG_LEVEL
+```
+
+**Expected Output:**
+
+**Screenshot:** Production pods
+![production pods](./images/7.kubectl_get_pods.png)
+
+### **Step 3: Optional Enhancements**
+
+1. **Use Secrets and ConfigMaps for Dynamic Values**
+   Define environment variables with `configMapGenerator` and `secretGenerator` in your Kustomize overlays instead of hardcoding.
+
+2. **Add Workflow Triggers for Pull Requests**
+
+```yaml
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+```
+
+3. **Enable Notifications**
+   Send deployment status to Slack, Teams, or email after each run.
+
+### **Step 4: Commit and Push Changes to GitHub**
+
+```bash
+git add .github/workflows/main.yml
+git commit -m "Task 7: Add optimized production-only CI/CD workflow with verification"
+git push origin main
+```
+
+* Pushing triggers the workflow automatically.
+* Pull requests targeting `main` will trigger verification steps only.
+
+### **Step 5: Final Verification**
+
+1. Go to the **GitHub Actions** tab.
+2. Trigger a push to `main`.
+3. Observe the workflow run: caching, setup steps, production deployment.
+4. Confirm **production pods** are running and environment variables are correct.
+5. Nginx or your application should be accessible based on your `Service` configuration.
+
+### ✅ **Resulting CI/CD Pipeline Structure**
+
+```
+.github/workflows/main.yml
+overlays/
+├── development/
+├── staging/
+└── production/
+base/
+```
+
+* Production deployment is automated.
+* Docker caching improves build speed.
+* Environment-specific configuration is applied correctly.
+

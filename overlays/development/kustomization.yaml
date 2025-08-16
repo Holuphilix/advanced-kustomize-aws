@@ -1,5 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
 resources:
   - ../../base
+namespace: myapp-namespace
 
 patches:
   - path: replica-patch.yaml
@@ -10,3 +14,10 @@ patches:
     target:
       kind: Deployment
       name: myapp-deployment
+  - path: env-patch.yaml
+    target:
+      kind: Deployment
+      name: myapp-deployment
+
+generatorOptions:
+  disableNameSuffixHash: true
