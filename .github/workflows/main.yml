@@ -44,7 +44,7 @@ jobs:
       - name: Set up Kustomize
         uses: imranismail/setup-kustomize@v1
         with:
-          version: 'latest'
+          kustomize-version: 'latest'
 
       # Configure kubeconfig from secret
       - name: Configure kubeconfig

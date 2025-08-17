@@ -33,22 +33,12 @@ This is like moving from playing a single instrument to conducting an entire orc
 
 ## **Prerequisites**
 
-Before starting, ensure the following:
+Before getting started, ensure you have the following tools installed and configured on your local machine:  
 
-1. **Basic Understanding of Kubernetes and Kustomize**
-
-   * Kubernetes concepts, deployments, services, and manifests.
-   * Kustomize basics for customizing configurations.
-2. **Installed Tools:**
-
-   * [Kustomize](https://kubectl.docs.kubernetes.io/installation/kustomize/)
-   * [Docker](https://docs.docker.com/get-docker/)
-   * [kubectl](https://kubernetes.io/docs/tasks/tools/)
-   * [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
-3. **AWS EKS Cluster Setup** via `eksctl` or AWS Management Console.
-4. **CI/CD Platform**: GitHub Actions, Jenkins, or AWS CodePipeline.
-5. **Code Editor**: Visual Studio Code with Kubernetes and YAML extensions.
-6. **GitHub Account** for version control.
+* [Kustomize](https://kubectl.docs.kubernetes.io/installation/kustomize/) – for customizing Kubernetes YAML configurations.  
+* [kubectl](https://kubernetes.io/docs/tasks/tools/) – command-line tool for interacting with Kubernetes clusters.  
+* [eksctl](https://eksctl.io/introduction/#installation) – a simple CLI tool for creating and managing Amazon EKS clusters.  
+* [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) – to interact with AWS services from the command line.  
 
 ## **Project Deliverables**
 
@@ -65,7 +55,6 @@ Before starting, ensure the following:
 
 * **Kubernetes** (Configuration Management & Orchestration)
 * **Kustomize** (Manifest Customization)
-* **Docker** (Containerization)
 * **kubectl** (Kubernetes CLI Tool)
 * **AWS EKS** (Managed Kubernetes Service)
 * **AWS CLI** (AWS Command-Line Interface)
@@ -679,7 +668,7 @@ jobs:
       - name: Set up Kustomize
         uses: imranismail/setup-kustomize@v1
         with:
-          version: 'latest'
+          kustomize-version: 'latest'
 
       - name: Configure kubeconfig from secret
         env:
@@ -704,6 +693,9 @@ git push origin main
 
 * Go to the **Actions** tab in GitHub
 * Watch the workflow logs for:
+
+**Screenshot:** Github Action Workflow Deployed
+![Github Action Workflow](./images/5.deployed_cicd_status.png)
 
   * AWS authentication success
   * Successful `kubectl apply`
@@ -1129,7 +1121,7 @@ jobs:
       - name: Set up Kustomize
         uses: imranismail/setup-kustomize@v1
         with:
-          version: 'latest'
+          kustomize-version: 'latest'
 
       # Configure kubeconfig from secret
       - name: Configure kubeconfig
@@ -1232,3 +1224,155 @@ base/
 * Docker caching improves build speed.
 * Environment-specific configuration is applied correctly.
 
+**Screenshot:** Deployed Gihub Action Workflow
+![Deployed Gihub Action Workflow](./images/12.deployed_workflow.png)
+
+![Deployed Gihub Action Workflow](./images/11.final_github_workflow.png)
+
+## **Task 8: Verify and Scale Production Deployment**
+
+**Objective:**
+Confirm your app is running in EKS, check production environment variables, and scale your deployment to improve availability.
+
+### **Step 1: Verify Production Pods**
+
+Check that production pods are running and have the correct environment variables:
+
+```bash
+# List all pods in the production namespace
+kubectl get pods -n myapp-namespace
+
+# Verify ENV variable in a production pod
+kubectl exec -it myapp-deployment-6b4f48dfdd-6wl6k -n myapp-namespace -- env | grep ENV
+
+# Verify LOG_LEVEL variable in a production pod
+kubectl exec -it myapp-deployment-6b4f48dfdd-zjprl -n myapp-namespace -- env | grep LOG_LEVEL
+```
+
+**Expected Output:**
+
+```
+ENV=production
+LOG_LEVEL=info
+```
+
+### **Step 2: Get Service URL**
+
+Retrieve the ClusterIP or LoadBalancer URL to access your Nginx app:
+
+```bash
+kubectl get svc myapp-service -n myapp-namespace
+```
+
+* For **LoadBalancer**, use the `EXTERNAL-IP` to access the app in a browser.
+* For **ClusterIP**, you may need to port-forward:
+
+```bash
+kubectl port-forward svc/myapp-service 8080:80 -n myapp-namespace
+```
+
+Then open [http://localhost:8080](http://localhost:8080) to see your Nginx page.
+
+**Screenshot:** Ngnix Page
+![Ngnix Page](./images/10.ngnix_page.png)
+
+### **Step 3: Scale Production Deployment**
+
+Increase the number of replicas to **4** for higher availability:
+
+```yaml
+# overlays/production/replica-patch.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp-deployment
+  namespace: myapp-namespace
+spec:
+  replicas: 4
+```
+
+Apply the patch:
+
+```bash
+kubectl apply -k overlays/production
+```
+
+Verify the scaling:
+
+```bash
+kubectl get pods -n myapp-namespace
+kubectl get deployment myapp-deployment -n myapp-namespace
+```
+
+**Expected Output:**
+
+* 4 pods running for `myapp-deployment`
+* Each pod has `ENV=production` and `LOG_LEVEL=info`
+
+**Screenshot:** 4 pods running for `myapp-deployment`
+![4 pods running for `myapp-deployment`](./images/9.kubectl_pods_running.png)
+
+### **Step 4: Documentation Notes**
+
+* Scaling is handled via **Kustomize overlay**, making it **version-controlled** and automated.
+* This ensures production deployments are **resilient** and **highly available**.
+* All environment-specific configurations remain intact when scaling.
+
+✅ **Resulting Folder Structure for Production Overlay**
+
+```
+overlays/
+└── production/
+    ├── kustomization.yaml
+    └── replica-patch.yaml  # Scales deployment to 4 replicas
+base/
+```
+
+### **Step 5: Clean Up**
+
+```bash
+eksctl delete cluster --name my-kustomize-cluster --region us-east-1
+```
+
+This will safely tear down your EKS cluster, associated nodes, and most AWS resources created by `eksctl`.
+
+## **Task 9: Final Update, Conclusion, and Author**
+
+### **Step 1: Final Update to GitHub**
+
+1. Commit all changes including:
+
+   * Updated workflows (`.github/workflows/main.yml`)
+   * Production overlay changes (`replica-patch.yaml`)
+   * Documentation (README, images/screenshots)
+
+```bash
+git add .
+git commit -m "Finalize project updates, production scaling"
+git push origin main
+```
+
+2. Ensure your GitHub Actions workflow runs successfully after the push.
+
+## **Conclusion**
+
+This project allowed me to deepen my understanding of **advanced Kubernetes configuration management** using Kustomize, while integrating a **production-focused CI/CD pipeline** with GitHub Actions. Through hands-on work, I was able to:
+
+* Automate production deployments safely and efficiently.
+* Manage environment-specific settings with `ConfigMap` and `Secret` generators.
+* Scale my application dynamically by updating replicas in the production overlay.
+* Verify deployments by checking pod environment variables and ensuring the app runs correctly on EKS.
+* Optimize build times using Docker caching, making CI/CD faster and more reliable.
+* Practice best cloud management by cleaning up resources after the project.
+
+This project has strengthened my confidence as a DevOps Engineer in building **real-world, automated, and production-ready pipelines**. It also gave me practical experience in **Kubernetes orchestration, cloud deployments, and GitOps principles**—skills I’m eager to apply in professional environments.
+
+## **Author**
+
+### **Philip Oluwaseyi Oludolamu**
+
+**Email: [oluphilix@gmail.com](mailto:oluphilix@gmail.com)**
+
+**GitHub: [github.com/Holuphilix](https://github.com/Holuphilix)**
+
+**LinkedIn: [linkedin.com/in/philipoludolamu](https://linkedin.com/in/philipoludolamu)**

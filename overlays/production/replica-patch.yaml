@@ -4,4 +4,4 @@ metadata:
   name: myapp-deployment
   namespace: myapp-namespace
 spec:
-  replicas: 3
+  replicas: 4
