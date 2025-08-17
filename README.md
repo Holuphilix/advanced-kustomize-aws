@@ -668,7 +668,7 @@ jobs:
       - name: Set up Kustomize
         uses: imranismail/setup-kustomize@v1
         with:
-          kustomize-version: 'latest'
+          kustomize-version: '5.7.1'
 
       - name: Configure kubeconfig from secret
         env:
@@ -1121,7 +1121,7 @@ jobs:
       - name: Set up Kustomize
         uses: imranismail/setup-kustomize@v1
         with:
-          kustomize-version: 'latest'
+          kustomize-version: '5.7.1'
 
       # Configure kubeconfig from secret
       - name: Configure kubeconfig
